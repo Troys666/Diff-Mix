@@ -1011,6 +1011,15 @@ def main():
                     loss = F.mse_loss(
                         model_pred.float(), target.float(), reduction="mean"
                     )
+                    # Add distribution matching loss
+                    bsz = model_pred.shape[0]
+                    # Use uniform weights for consistency with weighted case
+                    uniform_weights = torch.ones(bsz, device=model_pred.device)
+                    uniform_weights_expanded = uniform_weights.view(bsz, 1, 1, 1)
+                    model_pred_ws = (model_pred.float() * uniform_weights_expanded).sum(dim=0)
+                    target_ws = (target.float() * uniform_weights_expanded).sum(dim=0)
+                    dist_loss = F.mse_loss(model_pred_ws, target_ws, reduction="mean")
+                    loss = loss + dist_loss * 0.03
                 else:
                     # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
                     # Since we predict the noise instead of x_0, the original formulation is slightly changed.
@@ -1033,6 +1042,14 @@ def main():
                         * mse_loss_weights
                     )
                     loss = loss.mean()
+                
+                    # Add distribution matching loss
+                    bsz = model_pred.shape[0]
+                    mse_loss_weights_expanded = mse_loss_weights.view(bsz, 1, 1, 1)
+                    model_pred_ws = (model_pred.float() * mse_loss_weights_expanded).sum(dim=0)
+                    target_ws = (target.float() * mse_loss_weights_expanded).sum(dim=0)
+                    dist_loss = F.mse_loss(model_pred_ws, target_ws, reduction="mean")
+                    loss = loss + dist_loss * 0.03
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()

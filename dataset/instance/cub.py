@@ -13,8 +13,8 @@ from dataset.template import IMAGENET_TEMPLATES_TINY
 
 SUPER_CLASS_NAME = "bird"
 IMAGE_DIR = r"/data/zhicai/datasets/fgvc_datasets/CUB_200_2011"
-HUG_LOCAL_IMAGE_TRAIN_DIR = "/data/zhicai/cache/huggingface/datasets/Multimodal-Fatima___parquet/Multimodal-Fatima--CUB_train-bc20d158956ded0c"
-HUG_LOCAL_IMAGE_TEST_DIR = "/data/zhicai/cache/huggingface/datasets/Multimodal-Fatima___parquet/Multimodal-Fatima--CUB_test-71768dd1fcbe387e"
+HUG_LOCAL_IMAGE_TRAIN_DIR = "Multimodal-Fatima/CUB_train"
+HUG_LOCAL_IMAGE_TEST_DIR = "Multimodal-Fatima/CUB_test"
 
 
 def onehot(size, target):
