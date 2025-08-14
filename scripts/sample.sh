@@ -1,8 +1,8 @@
 
 DATASET='cub'
 # set -1 for full shot
-SHOT=-1 
-FINETUNED_CKPT="ckpts/cub/shot${SHOT}-lora-rank10"
+SHOT=5 
+FINETUNED_CKPT="/data/st/Diff-Mix/ckpts/cub/shot-1_lora_rank10_mmd1"
 # ['diff-mix', 'diff-aug', 'diff-gen', 'real-mix', 'real-aug', 'real-gen', 'ti_mix', 'ti_aug']
 SAMPLE_STRATEGY='diff-mix' 
 STRENGTH=0.8
@@ -11,11 +11,11 @@ STRENGTH_STRATEGY='fixed'
 # expand the dataset by 5 times
 MULTIPLIER=5 
 # spwan 4 processes
-GPU_IDS=(0 1 2 3) 
+GPU_IDS=(3 4) 
 
 python  scripts/sample_mp.py \
---model-path='runwayml/stable-diffusion-v1-5' \
---output_root='outputs/aug_samples' \
+--model_path='runwayml/stable-diffusion-v1-5' \
+--output_root='outputs/aug_samples1' \
 --dataset=$DATASET \
 --finetuned_ckpt=$FINETUNED_CKPT \
 --syn_dataset_mulitiplier=$MULTIPLIER \
@@ -23,7 +23,7 @@ python  scripts/sample_mp.py \
 --sample_strategy=$SAMPLE_STRATEGY \
 --examples_per_class=$SHOT \
 --resolution=512 \
---batch_size=1 \
+--batch_size=4 \
 --aug_strength=0.8 \
---gpu-ids=${GPU_IDS[@]}
+--gpu_ids ${GPU_IDS[@]}
 
