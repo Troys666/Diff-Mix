@@ -1,9 +1,9 @@
 MODEL_NAME="runwayml/stable-diffusion-v1-5"
 DATASET='cub'
-SHOT=-1 # set -1 for full shot
+SHOT=5 # set -1 for full shot
 OUTPUT_DIR="ckpts/${DATASET}/shot${SHOT}_lora_rank10_snr"
 
-accelerate launch --mixed_precision='fp16' --main_process_port 29507 \
+accelerate launch --config_file /data/st/Diff-Mix/config/accelerate_config1.yaml --mixed_precision='fp16' --main_process_port 29507 \
     train_lora.py \
     --pretrained_model_name_or_path=$MODEL_NAME \
     --dataset_name=$DATASET \
@@ -19,7 +19,7 @@ accelerate launch --mixed_precision='fp16' --main_process_port 29507 \
     --rank=10 \
     --local_files_only \
     --examples_per_class $SHOT  \
-    --train_batch_size 4 \
+    --train_batch_size 8 \
      --validation_prompt="a photo of a bird" \
     --num_validation_images=2 \
     --output_dir=$OUTPUT_DIR \
