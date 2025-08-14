@@ -273,7 +273,7 @@ def parse_args():
     parser.add_argument(
         "--snr_gamma",
         type=float,
-        default=None,
+        default=5,
         help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. "
         "More details here: https://arxiv.org/abs/2303.09556.",
     )
@@ -513,7 +513,7 @@ def main():
                 "Make sure to install wandb if you want to use it for logging during training."
             )
         import wandb
-        wandb.init(project="Diff")
+        wandb.init(project="Diff",name="snr_train")
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",

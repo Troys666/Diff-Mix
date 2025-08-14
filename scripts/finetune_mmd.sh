@@ -4,7 +4,7 @@
 MODEL_NAME="runwayml/stable-diffusion-v1-5"
 DATASET='cub'
 SHOT=-1 # set -1 for full shot
-OUTPUT_DIR="ckpts/${DATASET}/shot${SHOT}_lora_rank10_mmd"   #意思是秩为10的LoRA模型
+OUTPUT_DIR="ckpts/${DATASET}/shot${SHOT}_lora_rank10_mmd1"   #意思是秩为10的LoRA模型
 
 accelerate launch --mixed_precision='fp16' --main_process_port 29508 \
     train_lora_mmd.py \
@@ -14,7 +14,7 @@ accelerate launch --mixed_precision='fp16' --main_process_port 29508 \
     --random_flip \
     --max_train_steps=8750 \
     --num_train_epochs=10 \
-    --checkpointing_steps=5000 \
+    --checkpointing_steps=1000 \
     --learning_rate=5e-05 \
     --ti_learning_rate=5e-05 \
     --lr_scheduler='constant' \
