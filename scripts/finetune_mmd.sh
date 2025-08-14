@@ -4,25 +4,27 @@
 MODEL_NAME="runwayml/stable-diffusion-v1-5"
 DATASET='cub'
 SHOT=-1 # set -1 for full shot
-OUTPUT_DIR="ckpts/${DATASET}/shot${SHOT}_lora_rank10_mmd"   #意思是秩为10的LoRA模型
+OUTPUT_DIR="ckpts/${DATASET}/shot${SHOT}_lora_rank10_mmd"
 
-accelerate launch --mixed_precision='fp16' --main_process_port 29508 \
-    train_lora_mmd.py \
-    --pretrained_model_name_or_path=$MODEL_NAME \
-    --dataset_name=$DATASET \
-    --resolution=224 \
-    --random_flip \
-    --max_train_steps=35000 \
-    --num_train_epochs=10 \
-    --checkpointing_steps=5000 \
-    --learning_rate=5e-05 \
-    --ti_learning_rate=5e-05 \
-    --lr_scheduler='constant' \
-    --lr_warmup_steps=0 \
-    --seed=42 \
-    --rank=10 \
-    --local_files_only \
-    --examples_per_class $SHOT \
-    --train_batch_size 2 \
-    --output_dir=$OUTPUT_DIR \
+accelerate launch --mixed_precision='fp16' --main_process_port 29508 
+    train_lora_mmd.py 
+    --pretrained_model_name_or_path=$MODEL_NAME 
+    --dataset_name=$DATASET 
+    --resolution=224 
+    --random_flip 
+    --max_train_steps=35000 
+    --num_train_epochs=10 
+    --checkpointing_steps=5000 
+    --learning_rate=5e-05 
+    --ti_learning_rate=5e-05 
+    --lr_scheduler='constant' 
+    --lr_warmup_steps=0 
+    --seed=42 
+    --rank=10 
+    --local_files_only 
+    --examples_per_class $SHOT 
+    --train_batch_size 2 
+    --validation_prompt="a photo of a bird" 
+    --num_validation_images=2 
+    --output_dir=$OUTPUT_DIR 
     --report_to='tensorboard'

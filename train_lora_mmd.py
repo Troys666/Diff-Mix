@@ -1228,35 +1228,38 @@ def main():
             )
 
     # Final inference
-    # Load previous pipeline
-    pipeline = DiffusionPipeline.from_pretrained(
-        args.pretrained_model_name_or_path,
-        revision=args.revision,
-        torch_dtype=weight_dtype,
-        local_files_only=args.local_files_only,
-    )
-    pipeline = pipeline.to(accelerator.device)
-
-    # load attention processors
-    pipeline.unet.load_attn_procs(args.output_dir)
-
-    # run inference
-    generator = torch.Generator(device=accelerator.device)
-    if args.seed is not None:
-        generator = generator.manual_seed(args.seed)
-    images = []
-    for _ in range(args.num_validation_images):
-        images.append(
-            pipeline(
-                args.validation_prompt,
-                num_inference_steps=30,
-                generator=generator,
-                height=args.resolution,
-                width=args.resolution,
-            ).images[0]
+    if accelerator.is_main_process and args.validation_prompt is not None:
+        # Clear memory before final inference
+        torch.cuda.empty_cache()
+        
+        # Load previous pipeline
+        pipeline = DiffusionPipeline.from_pretrained(
+            args.pretrained_model_name_or_path,
+            revision=args.revision,
+            torch_dtype=weight_dtype,
+            local_files_only=args.local_files_only,
         )
+        pipeline = pipeline.to(accelerator.device)
 
-    if accelerator.is_main_process:
+        # load attention processors
+        pipeline.unet.load_attn_procs(args.output_dir)
+
+        # run inference
+        generator = torch.Generator(device=accelerator.device)
+        if args.seed is not None:
+            generator = generator.manual_seed(args.seed)
+        images = []
+        for _ in range(args.num_validation_images):
+            images.append(
+                pipeline(
+                    args.validation_prompt,
+                    num_inference_steps=30,
+                    generator=generator,
+                    height=args.resolution,
+                    width=args.resolution,
+                ).images[0]
+            )
+
         for tracker in accelerator.trackers:
             if len(images) != 0:
                 if tracker.name == "tensorboard":
@@ -1275,6 +1278,10 @@ def main():
                             ]
                         }
                     )
+        
+        # Clean up pipeline to free memory
+        del pipeline
+        torch.cuda.empty_cache()
 
     accelerator.end_training()
 
