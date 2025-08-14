@@ -146,3 +146,5 @@ dmypy.json
 .pyre/
 /outputs
 /datasets
+/sd-model-finetuned-lora
+/wandb

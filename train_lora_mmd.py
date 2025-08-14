@@ -49,7 +49,8 @@ from diffusers.optimization import get_scheduler
 from diffusers.utils import is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 
-os.environ["WANDB_DISABLED"] = "true"
+# Enable wandb logging
+# os.environ["WANDB_DISABLED"] = "true"  # Comment out this line to enable wandb
 from dataset import T2I_DATASET_NAME_MAPPING, T2I_IMBALANCE_DATASET_NAME_MAPPING
 
 # check_min_version("0.21.0.dev0")
@@ -512,6 +513,7 @@ def main():
                 "Make sure to install wandb if you want to use it for logging during training."
             )
         import wandb
+        wandb.init(project="Diff")
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
