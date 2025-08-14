@@ -273,7 +273,7 @@ def parse_args():
     parser.add_argument(
         "--snr_gamma",
         type=float,
-        default=None,
+        default=5,
         help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. "
         "More details here: https://arxiv.org/abs/2303.09556.",
     )
@@ -513,6 +513,7 @@ def main():
                 "Make sure to install wandb if you want to use it for logging during training."
             )
         import wandb
+        wandb.init(project="Diff",name="simple")
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -1133,53 +1134,67 @@ def main():
                     f"Running validation... \n Generating {args.num_validation_images} images with prompt:"
                     f" {args.validation_prompt}."
                 )
-                # create pipeline
-                pipeline = DiffusionPipeline.from_pretrained(
-                    args.pretrained_model_name_or_path,
-                    unet=accelerator.unwrap_model(unet),
-                    revision=args.revision,
-                    torch_dtype=weight_dtype,
-                    local_files_only=args.local_files_only,
-                )
-                pipeline = pipeline.to(accelerator.device)
-                pipeline.set_progress_bar_config(disable=True)
-
-                # run inference
-                generator = torch.Generator(device=accelerator.device)
-                if args.seed is not None:
-                    generator = generator.manual_seed(args.seed)
-                images = []
-                for _ in range(args.num_validation_images):
-                    images.append(
-                        pipeline(
-                            args.validation_prompt,
-                            num_inference_steps=30,
-                            generator=generator,
-                            height=args.resolution,
-                            width=args.resolution,
-                        ).images[0]
-                    )
-
-                for tracker in accelerator.trackers:
-                    if tracker.name == "tensorboard":
-                        np_images = np.stack([np.asarray(img) for img in images])
-                        tracker.writer.add_images(
-                            "validation", np_images, epoch, dataformats="NHWC"
-                        )
-                    if tracker.name == "wandb":
-                        tracker.log(
-                            {
-                                "validation": [
-                                    wandb.Image(
-                                        image, caption=f"{i}: {args.validation_prompt}"
-                                    )
-                                    for i, image in enumerate(images)
-                                ]
-                            }
-                        )
-
-                del pipeline
+                
+                # Clear cache before validation
                 torch.cuda.empty_cache()
+                
+                try:
+                    # create pipeline
+                    pipeline = DiffusionPipeline.from_pretrained(
+                        args.pretrained_model_name_or_path,
+                        unet=accelerator.unwrap_model(unet),
+                        revision=args.revision,
+                        torch_dtype=weight_dtype,
+                        local_files_only=args.local_files_only,
+                    )
+                    pipeline = pipeline.to(accelerator.device)
+                    pipeline.set_progress_bar_config(disable=True)
+
+                    # run inference
+                    generator = torch.Generator(device=accelerator.device)
+                    if args.seed is not None:
+                        generator = generator.manual_seed(args.seed)
+                    images = []
+                    for i in range(args.num_validation_images):
+                        try:
+                            image = pipeline(
+                                args.validation_prompt,
+                                num_inference_steps=30,
+                                generator=generator,
+                                height=args.resolution,
+                                width=args.resolution,
+                            ).images[0]
+                            images.append(image)
+                        except torch.cuda.OutOfMemoryError:
+                            logger.warning(f"CUDA OOM during validation at image {i+1}, stopping validation early")
+                            break
+
+                    for tracker in accelerator.trackers:
+                        if tracker.name == "tensorboard":
+                            if len(images) > 0:
+                                np_images = np.stack([np.asarray(img) for img in images])
+                                tracker.writer.add_images(
+                                    "validation", np_images, epoch, dataformats="NHWC"
+                                )
+                        if tracker.name == "wandb":
+                            if len(images) > 0:
+                                tracker.log(
+                                    {
+                                        "validation": [
+                                            wandb.Image(
+                                                image, caption=f"{i}: {args.validation_prompt}"
+                                            )
+                                            for i, image in enumerate(images)
+                                        ]
+                                    }
+                                )
+
+                    del pipeline
+                    torch.cuda.empty_cache()
+                    
+                except Exception as e:
+                    logger.warning(f"Validation failed: {e}. Skipping validation for this epoch.")
+                    images = []
 
     # Save the lora layers
     accelerator.wait_for_everyone()
@@ -1211,34 +1226,53 @@ def main():
                 ignore_patterns=["step_*", "epoch_*"],
             )
 
-    # Final inference
-    # Load previous pipeline
-    pipeline = DiffusionPipeline.from_pretrained(
-        args.pretrained_model_name_or_path,
-        revision=args.revision,
-        torch_dtype=weight_dtype,
-        local_files_only=args.local_files_only,
-    )
-    pipeline = pipeline.to(accelerator.device)
-
-    # load attention processors
-    pipeline.unet.load_attn_procs(args.output_dir)
-
-    # run inference
-    generator = torch.Generator(device=accelerator.device)
-    if args.seed is not None:
-        generator = generator.manual_seed(args.seed)
+    # Final inference with memory optimization
+    # Clear cache before final inference
+    torch.cuda.empty_cache()
+    
+    # Load previous pipeline only if we have a validation prompt
     images = []
-    for _ in range(args.num_validation_images):
-        images.append(
-            pipeline(
-                args.validation_prompt,
-                num_inference_steps=30,
-                generator=generator,
-                height=args.resolution,
-                width=args.resolution,
-            ).images[0]
-        )
+    if args.validation_prompt is not None and accelerator.is_main_process:
+        try:
+            pipeline = DiffusionPipeline.from_pretrained(
+                args.pretrained_model_name_or_path,
+                revision=args.revision,
+                torch_dtype=weight_dtype,
+                local_files_only=args.local_files_only,
+            )
+            pipeline = pipeline.to(accelerator.device)
+
+            # load attention processors
+            pipeline.unet.load_attn_procs(args.output_dir)
+            pipeline.set_progress_bar_config(disable=True)
+
+            # run inference
+            generator = torch.Generator(device=accelerator.device)
+            if args.seed is not None:
+                generator = generator.manual_seed(args.seed)
+            
+            for i in range(args.num_validation_images):
+                try:
+                    image = pipeline(
+                        args.validation_prompt,
+                        num_inference_steps=30,
+                        generator=generator,
+                        height=args.resolution,
+                        width=args.resolution,
+                    ).images[0]
+                    images.append(image)
+                except torch.cuda.OutOfMemoryError:
+                    logger.warning(f"CUDA OOM during final inference at image {i+1}, clearing cache and continuing...")
+                    torch.cuda.empty_cache()
+                    break
+            
+            # Clean up pipeline to free memory
+            del pipeline
+            torch.cuda.empty_cache()
+            
+        except Exception as e:
+            logger.warning(f"Final inference failed: {e}. Skipping final inference.")
+            images = []
 
     if accelerator.is_main_process:
         for tracker in accelerator.trackers:

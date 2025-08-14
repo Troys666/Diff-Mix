@@ -27,4 +27,5 @@ accelerate launch --mixed_precision='fp16' --main_process_port 29508 \
     --validation_prompt="a photo of a bird" \
     --num_validation_images=2 \
     --output_dir=$OUTPUT_DIR \
-    --report_to='wandb'
+    --report_to='wandb' \
+    --resume_from_checkpoint="ckpts/${DATASET}/shot-1_lora_rank10_mmd1/checkpoint-7000"
