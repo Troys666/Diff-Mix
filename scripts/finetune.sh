@@ -9,9 +9,9 @@ accelerate launch --config_file /data/st/Diff-Mix/config/accelerate_config1.yaml
     --dataset_name=$DATASET \
     --resolution=224 \
     --random_flip \
-    --max_train_steps=35000 \
+    --max_train_steps=5000 \
     --num_train_epochs=10 \
-    --checkpointing_steps=5000 \
+    --checkpointing_steps=1000 \
     --learning_rate=5e-05 \
     --lr_scheduler='constant' \
     --lr_warmup_steps=0 \
@@ -23,4 +23,5 @@ accelerate launch --config_file /data/st/Diff-Mix/config/accelerate_config1.yaml
      --validation_prompt="a photo of a bird" \
     --num_validation_images=2 \
     --output_dir=$OUTPUT_DIR \
-    --report_to='wandb'
+    --report_to='wandb' \
+    --resume_from_checkpoint="/data/st/Diff-Mix/ckpts/cub/shot5_lora_rank10_snr/checkpoint-5000"

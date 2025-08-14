@@ -12,7 +12,7 @@ accelerate launch --mixed_precision='fp16' --main_process_port 29508 \
     --dataset_name=$DATASET \
     --resolution=224 \
     --random_flip \
-    --max_train_steps=35000 \
+    --max_train_steps=5000 \
     --num_train_epochs=10 \
     --checkpointing_steps=1000 \
     --learning_rate=5e-05 \
