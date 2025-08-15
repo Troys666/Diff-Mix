@@ -93,20 +93,12 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
             except Empty:
                 print("queue empty, exit")
                 break
-                
-        # 对于类内增强策略，使用source作为参考；对于混合策略，使用target
-        if args.sample_strategy in ["real-aug", "diff-aug", "ti-aug"]:
-            # 类内增强：使用第一个source作为参考
-            reference_label = source_label_list[0]
-            reference_indice = random.sample(train_dataset.label_to_indices[reference_label], 1)[0]
-            reference_metadata = train_dataset.get_metadata_by_idx(reference_indice)
-            reference_name = reference_metadata["name"].replace(" ", "_").replace("/", "_")
-        else:
-            # 跨类别混合：使用target作为参考
-            reference_label = target_label_list[0]
-            reference_indice = random.sample(train_dataset.label_to_indices[reference_label], 1)[0]
-            reference_metadata = train_dataset.get_metadata_by_idx(reference_indice)
-            reference_name = reference_metadata["name"].replace(" ", "_").replace("/", "_")
+        target_label = target_label_list[0]
+        target_indice = random.sample(train_dataset.label_to_indices[target_label], 1)[
+            0
+        ]
+        target_metadata = train_dataset.get_metadata_by_idx(target_indice)
+        target_name = target_metadata["name"].replace(" ", "_").replace("/", "_")
 
         source_images = []
         save_paths = []
@@ -121,67 +113,24 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
             source_images.append(train_dataset.get_image_by_idx(source_indice))
             source_metadata = train_dataset.get_metadata_by_idx(source_indice)
             source_name = source_metadata["name"].replace(" ", "_").replace("/", "_")
-            
-            # 对于类内增强策略，使用简化的命名方式
-            if args.sample_strategy in ["real-aug", "diff-aug", "ti-aug"]:
-                save_name = os.path.join(
-                    source_name, f"aug-{index:06d}-{strength}.png"
-                )
-                # 类内增强：使用源图像自己的metadata作为参考
-                reference_metadata = source_metadata
-                reference_label = train_dataset.get_label_by_idx(source_indice)
-            else:  # 对于跨类别混合策略
-                save_name = os.path.join(
-                    source_name, f"{reference_name}-{index:06d}-{strength}.png"
-                )
-                # 跨类别混合：使用预设的target参考
-                # reference_metadata和reference_label已经在上面设置好了
+            save_name = os.path.join(
+                source_name, f"{target_name}-{index:06d}-{strength}.png"
+            )
             save_paths.append(os.path.join(args.output_path, "data", save_name))
 
         if os.path.exists(save_paths[0]):
             print(f"skip {save_paths[0]}")
         else:
-            # 对于类内增强，使用源图像的metadata和label
-            if args.sample_strategy in ["real-aug", "diff-aug", "ti-aug"]:
-                # 类内增强：每个图像使用自己的metadata和label，同时从同类别中选择参考图像
-                for i, (source_img, save_path, source_indice) in enumerate(zip(source_images, save_paths, source_indices)):
-                    img_metadata = train_dataset.get_metadata_by_idx(source_indice)
-                    img_label = train_dataset.get_label_by_idx(source_indice)
-                    
-                    # 从同类别中选择其他图像作为参考（排除当前源图像）
-                    same_class_indices = [idx for idx in train_dataset.label_to_indices[img_label] if idx != source_indice]
-                    if same_class_indices:
-                        # 随机选择同类别的参考图像
-                        reference_indices = random.sample(same_class_indices, min(len(same_class_indices), args.batch_size-1))
-                        reference_images = [train_dataset.get_image_by_idx(ref_idx) for ref_idx in reference_indices]
-                        # 将源图像和参考图像组合
-                        augment_images = [source_img] + reference_images
-                    else:
-                        # 如果没有其他同类别图像，只使用源图像
-                        augment_images = [source_img]
-                    
-                    image, _ = model(
-                        image=augment_images,
-                        label=img_label,
-                        strength=strength,
-                        metadata=img_metadata,
-                        resolution=args.resolution,
-                    )
-                    # 保存第一张图像（对应源图像的增强结果）
-                    image[0].save(save_path)
-                    print(f"save {save_path}")
-            else:
-                # 跨类别混合：使用统一的reference
-                image, _ = model(
-                    image=source_images,
-                    label=reference_label,
-                    strength=strength,
-                    metadata=reference_metadata,
-                    resolution=args.resolution,
-                )
-                for img, save_path in zip(image, save_paths):
-                    img.save(save_path)
-                print(f"save {save_path}")
+            image, _ = model(
+                image=source_images,
+                label=target_label,
+                strength=strength,
+                metadata=target_metadata,
+                resolution=args.resolution,
+            )
+            for image, save_path in zip(image, save_paths):
+                image.save(save_path)
+            print(f"save {save_path}")
 
 
 def main(args):
