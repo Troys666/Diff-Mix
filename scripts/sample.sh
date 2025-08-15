@@ -26,7 +26,7 @@ python  scripts/sample_mp.py \
 --sample_strategy=$SAMPLE_STRATEGY \
 --examples_per_class=$SHOT \
 --resolution=512 \
---batch_size=4 \
+--batch_size=8 \
 --aug_strength=0.8 \
 --gpu_ids ${GPU_IDS[@]}
 
