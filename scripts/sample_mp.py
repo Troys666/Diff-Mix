@@ -93,9 +93,18 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
             except Empty:
                 print("queue empty, exit")
                 break
+        
+        # If no items were retrieved from queue, exit the process
+        if not index_list:
+            print("No more tasks, process exiting")
+            break
+            
         source_images = []
         save_paths = []
         target_metadata_list = []
+        
+        # Adjust batch size based on actual retrieved items
+        actual_batch_size = len(index_list)
         
         if args.task == "vanilla":
             source_indices = [
@@ -103,10 +112,10 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
                 for source_label in source_label_list
             ]
         elif args.task == "imbalanced":
-            source_indices = random.sample(range(len(train_dataset)), batch_size)
+            source_indices = random.sample(range(len(train_dataset)), actual_batch_size)
             
         # For each image, get its corresponding target metadata
-        for i, (index, source_indice, target_label) in enumerate(zip(index_list, source_indices, target_label_list)):
+        for i, (index, source_indice, target_label, strength) in enumerate(zip(index_list, source_indices, target_label_list, strength_list)):
             source_images.append(train_dataset.get_image_by_idx(source_indice))
             source_metadata = train_dataset.get_metadata_by_idx(source_indice)
             source_name = source_metadata["name"].replace(" ", "_").replace("/", "_")
@@ -122,22 +131,37 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
             )
             save_paths.append(os.path.join(args.output_path, "data", save_name))
 
-        if os.path.exists(save_paths[0]):
-            print(f"skip {save_paths[0]}")
+        # Check if any files exist (individual check for better granularity)
+        files_to_process = []
+        for i, save_path in enumerate(save_paths):
+            if os.path.exists(save_path):
+                print(f"skip existing file: {save_path}")
+            else:
+                files_to_process.append(i)
+        
+        if files_to_process:
+            # Process only the files that don't exist
+            for i in files_to_process:
+                source_image = source_images[i]
+                target_label = target_label_list[i]
+                target_metadata = target_metadata_list[i]
+                save_path = save_paths[i]
+                strength = strength_list[i]
+                
+                try:
+                    image, _ = model(
+                        image=[source_image],
+                        label=target_label,
+                        strength=strength,
+                        metadata=target_metadata,
+                        resolution=args.resolution,
+                    )
+                    image[0].save(save_path)
+                    print(f"save {save_path}")
+                except Exception as e:
+                    print(f"Error processing {save_path}: {e}")
         else:
-            # Process each image with its corresponding target
-            for i, (source_image, target_label, target_metadata, save_path) in enumerate(
-                zip(source_images, target_label_list, target_metadata_list, save_paths)
-            ):
-                image, _ = model(
-                    image=[source_image],
-                    label=target_label,
-                    strength=strength,
-                    metadata=target_metadata,
-                    resolution=args.resolution,
-                )
-                image[0].save(save_path)
-                print(f"save {save_path}")
+            print(f"All files in batch already exist, skipping batch")
 
 
 def main(args):
@@ -185,6 +209,15 @@ def main(args):
 
     num_tasks = args.syn_dataset_mulitiplier * len(train_dataset)
 
+    print(f"Dataset: {args.dataset}")
+    print(f"Number of classes: {num_classes}")
+    print(f"Examples per class: {args.examples_per_class}")
+    print(f"Total training images: {len(train_dataset)}")
+    print(f"Multiplier: {args.syn_dataset_mulitiplier}")
+    print(f"Expected total tasks: {num_tasks}")
+    print(f"Number of GPUs: {len(args.gpu_ids)}")
+    print(f"Batch size: {args.batch_size}")
+
     if args.sample_strategy in [
         "real-gen",
         "real-aug",
@@ -192,11 +225,22 @@ def main(args):
         "diff-gen",
         "ti-aug",
     ]:
-        source_classes = random.choices(
-            range(len(train_dataset.class_names)), k=num_tasks
-        )
-        target_classes = source_classes
+        # For intra-class augmentation, ensure each class gets equal number of samples
+        samples_per_class = args.syn_dataset_mulitiplier * args.examples_per_class
+        source_classes = []
+        target_classes = []
+        
+        for class_idx in range(num_classes):
+            # Each class gets samples_per_class number of samples
+            source_classes.extend([class_idx] * samples_per_class)
+            target_classes.extend([class_idx] * samples_per_class)
+            
+        print(f"Samples per class: {samples_per_class}")
+        print(f"Total classes: {num_classes}")
+        print(f"Generated class distribution (first few): {source_classes[:10]}")
+        
     elif args.sample_strategy in ["real-mix", "diff-mix", "ti-mix"]:
+        # For inter-class mixing, use random selection
         source_classes = random.choices(
             range(len(train_dataset.class_names)), k=num_tasks
         )
@@ -253,13 +297,20 @@ def main(args):
     pattern_level_1 = r"(.+)"
     pattern_level_2 = r"(.+)-(\d+)-(.+).png"
     data_dict = defaultdict(list)
+    total_generated_files = 0
+    
     for dir in os.listdir(rootdir):
         if not os.path.isdir(os.path.join(rootdir, dir)):
             continue
         match_1 = re.match(pattern_level_1, dir)
+        if not match_1:
+            continue
         first_dir = match_1.group(1).replace("_", " ")
         for file in os.listdir(os.path.join(rootdir, dir)):
             match_2 = re.match(pattern_level_2, file)
+            if not match_2:
+                print(f"Warning: Skipping file with unexpected format: {file}")
+                continue
             second_dir = match_2.group(1).replace("_", " ")
             num = int(match_2.group(2))
             floating_num = float(match_2.group(3))
@@ -268,7 +319,11 @@ def main(args):
             data_dict["Number"].append(num)
             data_dict["Strength"].append(floating_num)
             data_dict["Path"].append(os.path.join(dir, file))
+            total_generated_files += 1
 
+    print(f"Total generated files found: {total_generated_files}")
+    print(f"Expected total tasks: {num_tasks}")
+    
     df = pd.DataFrame(data_dict)
 
     # Validate generated images
@@ -287,8 +342,37 @@ def main(args):
     csv_path = os.path.join(args.output_path, "meta.csv")
     valid_df.to_csv(csv_path, index=False)
 
-    print("DataFrame:")
-    print(df)
+    print("\n" + "="*50)
+    print("GENERATION SUMMARY:")
+    print(f"Expected total tasks: {num_tasks}")
+    print(f"Total files found: {total_generated_files}")
+    print(f"Valid files after validation: {len(valid_df)}")
+    print(f"Missing files: {num_tasks - len(valid_df)}")
+    
+    # Check class distribution
+    if len(valid_df) > 0:
+        class_counts = valid_df['First Directory'].value_counts()
+        expected_per_class = args.syn_dataset_mulitiplier * args.examples_per_class
+        
+        print(f"\nClass distribution analysis:")
+        print(f"Expected files per class: {expected_per_class}")
+        print(f"Classes with correct count: {(class_counts == expected_per_class).sum()}")
+        print(f"Classes with incorrect count: {(class_counts != expected_per_class).sum()}")
+        
+        incorrect_classes = class_counts[class_counts != expected_per_class]
+        if len(incorrect_classes) > 0:
+            print(f"\nClasses with incorrect file counts:")
+            for class_name, count in incorrect_classes.items():
+                print(f"  {class_name}: {count} (expected {expected_per_class})")
+    
+    if num_tasks - len(valid_df) > 0:
+        print(f"⚠️  Warning: {num_tasks - len(valid_df)} files are missing!")
+    else:
+        print("✅ All expected files generated successfully!")
+    print("="*50)
+
+    print("DataFrame sample:")
+    print(valid_df.head())
 
 
 if __name__ == "__main__":

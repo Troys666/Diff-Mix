@@ -20,7 +20,7 @@ python downstream_tasks/train_hub.py \
     --gpu $GPU \
     --amp 2 \
     --note $(date +%m%d%H%M) \
-    --group_note "5shotmmd_aug_mmd" \
+    --group_note "5shotmmdsim" \
     --nepoch 120 \
     --res_mode 224 \
     --lr 0.05 \
