@@ -2,11 +2,11 @@
 #lr(resnet) (0.001       0.05       0.10        0.10          0.05        0.01     0.01     0.01      0.01      0.01    )
 #lr(vit)    (0.00001     0.001      0.001       0.001         0.0005      0.0001   0.00005  0.00005   0.00005   0.00005 )
 
-GPU=5
+GPU=2
 DATASET="cub"
 SHOT=5
 # "shot{args.examples_per_class}_{args.sample_strategy}_{args.strength_strategy}_{args.aug_strength}"
-SYNDATA_DIR="/data/st/Diff-Mix/outputs/aug_samples_mmd_sim/cub/shot5_diff-mix_fixed_0.8" # shot-1 denotes full shot
+SYNDATA_DIR="/data/st/Diff-Mix/outputs/aug_samples_mmd_sim/cub/shot5_diff-aug_fixed_0.8" # shot-1 denotes full shot
 SYNDATA_P=0.1
 GAMMA=0.8
 

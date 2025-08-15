@@ -74,7 +74,7 @@ class IdentityMap:
 
 class DreamboothLoraMixup(GenerativeMixup):
 
-    pipes = {}  # device-specific pipes to avoid GPU conflicts
+    pipe = None  # global sharing is a hack to avoid OOM
 
     def __init__(
         self,
@@ -92,11 +92,11 @@ class DreamboothLoraMixup(GenerativeMixup):
 
         super(DreamboothLoraMixup, self).__init__()
 
-        if device not in DreamboothLoraMixup.pipes:
+        if DreamboothLoraMixup.pipe is None:
 
             PipelineClass = StableDiffusionImg2ImgPipeline
 
-            DreamboothLoraMixup.pipes[device] = PipelineClass.from_pretrained(
+            DreamboothLoraMixup.pipe = PipelineClass.from_pretrained(
                 model_path,
                 use_auth_token=True,
                 revision=revision,
@@ -105,29 +105,27 @@ class DreamboothLoraMixup(GenerativeMixup):
             ).to(device)
 
             scheduler = DPMSolverMultistepScheduler.from_config(
-                DreamboothLoraMixup.pipes[device].scheduler.config, local_files_only=True
+                DreamboothLoraMixup.pipe.scheduler.config, local_files_only=True
             )
             self.placeholder2name = {}
             self.name2placeholder = {}
             if embed_path is not None:
                 self.name2placeholder, self.placeholder2name = load_diffmix_embeddings(
                     embed_path,
-                    DreamboothLoraMixup.pipes[device].text_encoder,
-                    DreamboothLoraMixup.pipes[device].tokenizer,
+                    DreamboothLoraMixup.pipe.text_encoder,
+                    DreamboothLoraMixup.pipe.tokenizer,
                 )
             if lora_path is not None:
-                DreamboothLoraMixup.pipes[device].load_lora_weights(lora_path)
-            DreamboothLoraMixup.pipes[device].scheduler = scheduler
+                DreamboothLoraMixup.pipe.load_lora_weights(lora_path)
+            DreamboothLoraMixup.pipe.scheduler = scheduler
 
             print(f"successfuly load lora weights from {lora_path}! ! ! ")
 
             logging.disable_progress_bar()
-            DreamboothLoraMixup.pipes[device].set_progress_bar_config(disable=True)
+            self.pipe.set_progress_bar_config(disable=True)
 
             if disable_safety_checker:
-                DreamboothLoraMixup.pipes[device].safety_checker = None
-
-        self.pipe = DreamboothLoraMixup.pipes[device]
+                self.pipe.safety_checker = None
 
         self.prompt = prompt
         self.guidance_scale = guidance_scale

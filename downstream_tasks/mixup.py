@@ -2,8 +2,8 @@ import random
 
 import numpy as np
 import torch
-from cutmix.cutmix import CutMix
-from cutmix.utils import onehot, rand_bbox
+#from cutmix.cutmix import CutMix
+#from cutmix.utils import onehot, rand_bbox
 from torch.utils.data.dataset import Dataset
 
 
