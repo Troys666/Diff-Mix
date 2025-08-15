@@ -93,23 +93,10 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
             except Empty:
                 print("queue empty, exit")
                 break
-                
-        # 对于类内增强策略，使用source作为参考；对于混合策略，使用target
-        if args.sample_strategy in ["real-aug", "diff-aug", "ti-aug"]:
-            # 类内增强：使用第一个source作为参考
-            reference_label = source_label_list[0]
-            reference_indice = random.sample(train_dataset.label_to_indices[reference_label], 1)[0]
-            reference_metadata = train_dataset.get_metadata_by_idx(reference_indice)
-            reference_name = reference_metadata["name"].replace(" ", "_").replace("/", "_")
-        else:
-            # 跨类别混合：使用target作为参考
-            reference_label = target_label_list[0]
-            reference_indice = random.sample(train_dataset.label_to_indices[reference_label], 1)[0]
-            reference_metadata = train_dataset.get_metadata_by_idx(reference_indice)
-            reference_name = reference_metadata["name"].replace(" ", "_").replace("/", "_")
-
         source_images = []
         save_paths = []
+        target_metadata_list = []
+        
         if args.task == "vanilla":
             source_indices = [
                 random.sample(train_dataset.label_to_indices[source_label], 1)[0]
@@ -117,35 +104,40 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
             ]
         elif args.task == "imbalanced":
             source_indices = random.sample(range(len(train_dataset)), batch_size)
-        for index, source_indice in zip(index_list, source_indices):
+            
+        # For each image, get its corresponding target metadata
+        for i, (index, source_indice, target_label) in enumerate(zip(index_list, source_indices, target_label_list)):
             source_images.append(train_dataset.get_image_by_idx(source_indice))
             source_metadata = train_dataset.get_metadata_by_idx(source_indice)
             source_name = source_metadata["name"].replace(" ", "_").replace("/", "_")
             
-            # 对于类内增强策略，使用简化的命名方式
-            if args.sample_strategy in ["real-aug", "diff-aug", "ti-aug"]:
-                save_name = os.path.join(
-                    source_name, f"aug-{index:06d}-{strength}.png"
-                )
-            else:  # 对于跨类别混合策略
-                save_name = os.path.join(
-                    source_name, f"{reference_name}-{index:06d}-{strength}.png"
-                )
+            # Get target metadata for this specific target_label
+            target_indice = random.sample(train_dataset.label_to_indices[target_label], 1)[0]
+            target_metadata = train_dataset.get_metadata_by_idx(target_indice)
+            target_metadata_list.append(target_metadata)
+            target_name = target_metadata["name"].replace(" ", "_").replace("/", "_")
+            
+            save_name = os.path.join(
+                source_name, f"{target_name}-{index:06d}-{strength}.png"
+            )
             save_paths.append(os.path.join(args.output_path, "data", save_name))
 
         if os.path.exists(save_paths[0]):
             print(f"skip {save_paths[0]}")
         else:
-            image, _ = model(
-                image=source_images,
-                label=reference_label,
-                strength=strength,
-                metadata=reference_metadata,
-                resolution=args.resolution,
-            )
-            for image, save_path in zip(image, save_paths):
-                image.save(save_path)
-            print(f"save {save_path}")
+            # Process each image with its corresponding target
+            for i, (source_image, target_label, target_metadata, save_path) in enumerate(
+                zip(source_images, target_label_list, target_metadata_list, save_paths)
+            ):
+                image, _ = model(
+                    image=[source_image],
+                    label=target_label,
+                    strength=strength,
+                    metadata=target_metadata,
+                    resolution=args.resolution,
+                )
+                image[0].save(save_path)
+                print(f"save {save_path}")
 
 
 def main(args):
@@ -192,7 +184,7 @@ def main(args):
         os.makedirs(os.path.join(args.output_path, "data", name), exist_ok=True)
 
     num_tasks = args.syn_dataset_mulitiplier * len(train_dataset)
-    #这里挺重要的
+
     if args.sample_strategy in [
         "real-gen",
         "real-aug",
