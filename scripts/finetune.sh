@@ -24,4 +24,4 @@ accelerate launch --config_file /data/st/Diff-Mix/config/accelerate_config1.yaml
     --num_validation_images=2 \
     --output_dir=$OUTPUT_DIR \
     --report_to='wandb' \
-    --resume_from_checkpoint="/data/st/Diff-Mix/ckpts/cub/shot5_lora_rank10_snr/checkpoint-5000"
+    

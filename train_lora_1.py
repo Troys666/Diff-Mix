@@ -52,7 +52,6 @@ from diffusers.utils.import_utils import is_xformers_available
 # Enable wandb logging
 # os.environ["WANDB_DISABLED"] = "true"  # Comment out this line to enable wandb
 from dataset import T2I_DATASET_NAME_MAPPING, T2I_IMBALANCE_DATASET_NAME_MAPPING
-from core import frequency_filter
 
 # check_min_version("0.21.0.dev0")
 
@@ -419,6 +418,12 @@ def parse_args():
         "--noise_offset", type=float, default=0, help="The scale of noise offset."
     )
     parser.add_argument(
+        "--dist_null_cond_prob",
+        type=float,
+        default=0.3,
+        help="Probability to use empty condition when computing distribution matching loss.",
+    )
+    parser.add_argument(
         "--rank",
         type=int,
         default=4,
@@ -590,15 +595,28 @@ def main():
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    # Move unet, vae and text_encoder to device and cast to weight_dtype
+    # Move unet, vae to weight_dtype; keep text_encoder in float32 for stability
     unet.to(accelerator.device, dtype=weight_dtype)
     vae.to(accelerator.device, dtype=weight_dtype)
-    text_encoder.to(accelerator.device, dtype=weight_dtype)
+    text_encoder.to(accelerator.device, dtype=torch.float32)
 
     text_encoder.text_model.embeddings.token_embedding.weight.data = (
         text_encoder.get_input_embeddings().weight.data.float()
     )
     # endregion
+
+    # Precompute empty prompt encoder hidden states for dist loss (no grad)
+    empty_inputs = tokenizer(
+        [""],
+        max_length=tokenizer.model_max_length,
+        padding="max_length",
+        truncation=True,
+        return_tensors="pt",
+    )
+    empty_input_ids_single = empty_inputs.input_ids.to(accelerator.device)
+    with torch.no_grad():
+        with torch.autocast(device_type=accelerator.device.type, enabled=False):
+            empty_hidden_single = text_encoder(empty_input_ids_single)[0].to(dtype=weight_dtype)
 
     with accelerator.main_process_first():
 
@@ -985,9 +1003,9 @@ def main():
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
                 # Get the text embedding for conditioning
-                encoder_hidden_states = text_encoder(batch["input_ids"])[0].to(
-                    dtype=weight_dtype
-                )
+                # Encode text in float32 for stability, then cast to weight_dtype
+                with torch.autocast(device_type=accelerator.device.type, enabled=False):
+                    encoder_hidden_states = text_encoder(batch["input_ids"])[0].to(dtype=weight_dtype)
 
                 # Get the target for loss depending on the prediction type
                 if args.prediction_type is not None:
@@ -1010,6 +1028,18 @@ def main():
                     noisy_latents, timesteps, encoder_hidden_states
                 ).sample
 
+                # Build unified condition for distribution matching loss (optionally null)
+                if random.random() < args.dist_null_cond_prob:
+                    # reuse cached empty hidden states; keep out of graph and avoid view versioning
+                    encoder_hidden_states_dist = empty_hidden_single.detach().expand(bsz, -1, -1).contiguous()
+                else:
+                    input_ids_for_dist = batch["input_ids"][0].unsqueeze(0).repeat(bsz, 1)
+                    with torch.autocast(device_type=accelerator.device.type, enabled=False):
+                        encoder_hidden_states_dist = text_encoder(input_ids_for_dist)[0].to(dtype=weight_dtype)
+                model_pred_for_dist = unet(
+                    noisy_latents, timesteps, encoder_hidden_states_dist
+                ).sample
+
                 if args.snr_gamma is None:
                     loss = F.mse_loss(
                         model_pred.float(), target.float(), reduction="mean"
@@ -1019,11 +1049,8 @@ def main():
                     # Use uniform weights for consistency with weighted case
                     uniform_weights = torch.ones(bsz, device=model_pred.device)
                     uniform_weights_expanded = uniform_weights.view(bsz, 1, 1, 1)
-                    # Filter first (per-sample), then aggregate with weights
-                    model_pred_low_b = frequency_filter(model_pred.float(), threshold=0.2, scale_low=1.0, scale_high=0.0)
-                    target_low_b = frequency_filter(target.float(), threshold=0.2, scale_low=1.0, scale_high=0.0)
-                    model_pred_ws = (model_pred_low_b * uniform_weights_expanded).sum(dim=0)
-                    target_ws = (target_low_b * uniform_weights_expanded).sum(dim=0)
+                    model_pred_ws = (model_pred_for_dist.float() * uniform_weights_expanded).sum(dim=0)
+                    target_ws = (target.float() * uniform_weights_expanded).sum(dim=0)
                     dist_loss = F.mse_loss(model_pred_ws, target_ws, reduction="mean")
                     loss = loss + dist_loss * 0.03
                 else:
@@ -1052,13 +1079,10 @@ def main():
                     # Add distribution matching loss
                     bsz = model_pred.shape[0]
                     mse_loss_weights_expanded = mse_loss_weights.view(bsz, 1, 1, 1)
-                    # Filter first (per-sample), then aggregate with weights
-                    model_pred_low_b = frequency_filter(model_pred.float(), threshold=0.2, scale_low=1, scale_high=0.0)
-                    target_low_b = frequency_filter(target.float(), threshold=0.2, scale_low=1, scale_high=0.0)
-                    model_pred_ws = (model_pred_low_b * mse_loss_weights_expanded).sum(dim=0)
-                    target_ws = (target_low_b * mse_loss_weights_expanded).sum(dim=0)
+                    model_pred_ws = (model_pred_for_dist.float() * mse_loss_weights_expanded).sum(dim=0)
+                    target_ws = (target.float() * mse_loss_weights_expanded).sum(dim=0)
                     dist_loss = F.mse_loss(model_pred_ws, target_ws, reduction="mean")
-                    loss = dist_loss
+                    loss = loss + dist_loss * 0.03
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
