@@ -5,10 +5,10 @@ from .ti_mix import *
 AUGMENT_METHODS = {
     "ti-mix": TextualInversionMixup,
     "ti_aug": TextualInversionMixup,
-    "real-aug": DreamboothLoraMixup,
-    "real-mix": DreamboothLoraMixup,
+    "real-aug": DDIMLoraMixup,
+    "real-mix": DDIMLoraMixup,
     "real-gen": RealGeneration,
-    "diff-mix": DreamboothLoraMixup,
-    "diff-aug": DreamboothLoraMixup,
-    "diff-gen": DreamboothLoraGeneration,
+    "diff-mix": DDIMLoraMixup,
+    "diff-aug": DDIMLoraMixup,
+    "diff-gen": DDIMLoraGeneration,
 }

@@ -148,3 +148,5 @@ dmypy.json
 /datasets
 /sd-model-finetuned-lora
 /wandb
+/outputs1
+/outputs2

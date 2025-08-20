@@ -44,17 +44,6 @@ def check_args_valid(args):
         args.lora_path = lora_path
         args.embed_path = embed_path
 
-    # Basic validation for MMD forward guidance
-    if getattr(args, "mmd_guidance", False):
-        if args.sample_strategy not in ["diff-aug", "diff-mix", "diff-gen", "ti-aug", "ti-mix"]:
-            print(
-                f"[Warning] MMD guidance is typically used with diffusion-based strategies; got '{args.sample_strategy}'."
-            )
-        if args.mmd_feature_means is None:
-            raise ValueError(
-                "--mmd_feature_means must be provided when --mmd_guidance is enabled"
-            )
-
 
 def sample_func(args, in_queue, out_queue, gpu_id, process_id):
 
@@ -86,7 +75,7 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
         prompt=args.prompt,
         guidance_scale=args.guidance_scale,
         device=f"cuda:{gpu_id}",
-    )
+    )    #采样的地方
     batch_size = args.batch_size
 
     while True:
@@ -160,25 +149,11 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
                 strength = strength_list[i]
                 
                 try:
-                    # Attach MMD forward guidance config into metadata to be consumed by the model
-                    guidance_metadata = dict(target_metadata) if isinstance(target_metadata, dict) else {"_raw": target_metadata}
-                    if getattr(args, "mmd_guidance", False):
-                        guidance_metadata["mmd_guidance"] = {
-                            "enabled": True,
-                            "feature_means_path": args.mmd_feature_means,
-                            "strength_schedule": args.mmd_schedule,
-                            "strength_min": args.mmd_s_min,
-                            "strength_max": args.mmd_s_max,
-                            "sampler": args.mmd_sampler,
-                            "layer_weights": args.mmd_layer_weights,
-                            "embedding_dim": 128,
-                        }
-
                     image, _ = model(
                         image=[source_image],
                         label=target_label,
                         strength=strength,
-                        metadata=guidance_metadata,
+                        metadata=target_metadata,
                         resolution=args.resolution,
                     )
                     image[0].save(save_path)
@@ -289,17 +264,6 @@ def main(args):
     sample_config["num_classes"] = num_classes
     sample_config["total_tasks"] = num_tasks
     sample_config["sample_strategy"] = args.sample_strategy
-    # Persist MMD guidance settings if enabled
-    if getattr(args, "mmd_guidance", False):
-        sample_config["mmd_guidance_config"] = {
-            "feature_means_path": args.mmd_feature_means,
-            "strength_schedule": args.mmd_schedule,
-            "strength_min": args.mmd_s_min,
-            "strength_max": args.mmd_s_max,
-            "sampler": args.mmd_sampler,
-            "layer_weights": args.mmd_layer_weights,
-            "embedding_dim": 128,
-        }
 
     with open(
         os.path.join(args.output_path, "config.yaml"), "w", encoding="utf-8"
@@ -458,7 +422,7 @@ if __name__ == "__main__":
         help="sampling strategy for synthetic data",
     )
     parser.add_argument(
-        "--guidance-scale",
+        "--guidance_scale",
         type=float,
         default=7.5,
         help="classifier free guidance scale",
@@ -492,51 +456,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--aug_strength", type=float, default=0.5, help="augmentation strength"
-    )
-    # MMD forward guidance options
-    parser.add_argument(
-        "--mmd_guidance",
-        action="store_true",
-        help="Enable Noise-adaptive MMD Forward Guidance during diffusion sampling",
-    )
-    parser.add_argument(
-        "--mmd_feature_means",
-        type=str,
-        default=None,
-        help="Path to precomputed feature means for φ̄(Xt,t;θ⋆) and φ̄(X0,t;θ⋆) (e.g., .pt/.pth/.npy)",
-    )
-    parser.add_argument(
-        "--mmd_schedule",
-        type=str,
-        default="linear",
-        choices=["linear", "cosine", "constant"],
-        help="Guidance strength schedule s(t)",
-    )
-    parser.add_argument(
-        "--mmd_s_min",
-        type=float,
-        default=0.0,
-        help="Minimum guidance strength (at end of schedule)",
-    )
-    parser.add_argument(
-        "--mmd_s_max",
-        type=float,
-        default=1.0,
-        help="Maximum guidance strength (at start of schedule)",
-    )
-    parser.add_argument(
-        "--mmd_sampler",
-        type=str,
-        default="ddim",
-        choices=["ddim", "ddpm"],
-        help="Base sampler S used for latent updates",
-    )
-    parser.add_argument(
-        "--mmd_layer_weights",
-        type=float,
-        nargs=4,
-        default=[1.0, 1.0, 1.0, 1.0],
-        help="Layer weights [w1,w2,w3,w4] for feature concatenation from UNet",
     )
     args = parser.parse_args()
 

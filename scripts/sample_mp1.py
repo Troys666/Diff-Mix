@@ -75,6 +75,8 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
         prompt=args.prompt,
         guidance_scale=args.guidance_scale,
         device=f"cuda:{gpu_id}",
+        ddim_eta=args.ddim_eta,
+        num_inference_steps=args.num_inference_steps,
     )
     batch_size = args.batch_size
 
@@ -331,7 +333,7 @@ if __name__ == "__main__":
         help="sampling strategy for synthetic data",
     )
     parser.add_argument(
-        "--guidance-scale",
+        "--guidance_scale",
         type=float,
         default=7.5,
         help="classifier free guidance scale",
@@ -365,6 +367,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--aug_strength", type=float, default=0.5, help="augmentation strength"
+    )
+    parser.add_argument(
+        "--ddim_eta", type=float, default=0.0, help="DDIM eta parameter (0.0 for DDIM, 1.0 for DDPM)"
+    )
+    parser.add_argument(
+        "--num_inference_steps", type=int, default=25, help="number of DDIM inference steps"
     )
     args = parser.parse_args()
 
