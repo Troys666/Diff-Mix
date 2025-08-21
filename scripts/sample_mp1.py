@@ -4,6 +4,7 @@ import random
 import re
 import sys
 import time
+import csv
 
 import numpy as np
 import pandas as pd
@@ -45,6 +46,29 @@ def check_args_valid(args):
         args.embed_path = embed_path
 
 
+def load_mapping_file(mapping_file: str) -> list:
+    """加载映射文件"""
+    if not os.path.exists(mapping_file):
+        raise FileNotFoundError(f"映射文件不存在: {mapping_file}")
+    
+    mappings = []
+    with open(mapping_file, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            mappings.append({
+                'pair_id': int(row['pair_id']),
+                'source_idx': int(row['source_idx']),
+                'source_class': int(row['source_class']),
+                'source_name': row['source_name'],
+                'target_idx': int(row['target_idx']),
+                'target_class': int(row['target_class']),
+                'target_name': row['target_name']
+            })
+    
+    print(f"加载了 {len(mappings)} 个映射对")
+    return mappings
+
+
 def sample_func(args, in_queue, out_queue, gpu_id, process_id):
 
     os.environ["CURL_CA_BUNDLE"] = ""
@@ -78,61 +102,58 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
         ddim_eta=args.ddim_eta,
         num_inference_steps=args.num_inference_steps,
     )
-    batch_size = args.batch_size
 
     while True:
-        index_list = []
-        source_label_list = []
-        target_label_list = []
-        strength_list = []
-        for _ in range(batch_size):
-            try:
-                index, source_label, target_label, strength = in_queue.get(timeout=1)
-                index_list.append(index)
-                source_label_list.append(source_label)
-                target_label_list.append(target_label)
-                strength_list.append(strength)
-            except Empty:
-                print("queue empty, exit")
-                break
-        target_label = target_label_list[0]
-        target_indice = random.sample(train_dataset.label_to_indices[target_label], 1)[
-            0
-        ]
-        target_metadata = train_dataset.get_metadata_by_idx(target_indice)
+        try:
+            # 从队列中获取任务包
+            task_package = in_queue.get(timeout=1)
+        except Empty:
+            print("queue empty, exit")
+            break
+        
+        # 解包任务包
+        target_class = task_package['target_class']
+        target_idx = task_package['target_idx']
+        mappings = task_package['mappings']
+        
+        # 获取target元数据
+        target_metadata = train_dataset.get_metadata_by_idx(target_idx)
         target_name = target_metadata["name"].replace(" ", "_").replace("/", "_")
-
+        
+        # 收集所有source图像和保存路径
         source_images = []
         save_paths = []
-        if args.task == "vanilla":
-            source_indices = [
-                random.sample(train_dataset.label_to_indices[source_label], 1)[0]
-                for source_label in source_label_list
-            ]
-        elif args.task == "imbalanced":
-            source_indices = random.sample(range(len(train_dataset)), batch_size)
-        for index, source_indice in zip(index_list, source_indices):
-            source_images.append(train_dataset.get_image_by_idx(source_indice))
-            source_metadata = train_dataset.get_metadata_by_idx(source_indice)
-            source_name = source_metadata["name"].replace(" ", "_").replace("/", "_")
+        
+        for mapping in mappings:
+            # 获取源图像
+            source_idx = mapping['source_idx']
+            source_images.append(train_dataset.get_image_by_idx(source_idx))
+            
+            # 构建保存路径
+            source_name = mapping['source_name'].replace(" ", "_").replace("/", "_")
             save_name = os.path.join(
-                source_name, f"{target_name}-{index:06d}-{strength}.png"
+                source_name, f"{target_name}-{mapping['pair_id']:06d}-{args.aug_strength}.png"
             )
             save_paths.append(os.path.join(args.output_path, "data", save_name))
 
+        # 检查是否需要跳过
         if os.path.exists(save_paths[0]):
-            print(f"skip {save_paths[0]}")
+            print(f"skip {save_paths[0]} (and {len(save_paths)-1} others)")
         else:
-            image, _ = model(
+            # 批量调用模型处理所有source图像
+            images, _ = model(
                 image=source_images,
-                label=target_label,
-                strength=strength,
+                label=target_class,
+                strength=args.aug_strength,
                 metadata=target_metadata,
                 resolution=args.resolution,
             )
-            for image, save_path in zip(image, save_paths):
+            
+            # 保存所有生成的图像
+            for image, save_path in zip(images, save_paths):
                 image.save(save_path)
-            print(f"save {save_path}")
+            
+            print(f"batch processed {len(images)} images for target {target_name}")
 
 
 def main(args):
@@ -178,43 +199,38 @@ def main(args):
         name = name.replace(" ", "_").replace("/", "_")
         os.makedirs(os.path.join(args.output_path, "data", name), exist_ok=True)
 
-    num_tasks = args.syn_dataset_mulitiplier * len(train_dataset)
-
-    if args.sample_strategy in [
-        "real-gen",
-        "real-aug",
-        "diff-aug",
-        "diff-gen",
-        "ti-aug",
-    ]:
-        source_classes = random.choices(
-            range(len(train_dataset.class_names)), k=num_tasks
-        )
-        target_classes = source_classes
-    elif args.sample_strategy in ["real-mix", "diff-mix", "ti-mix"]:
-        source_classes = random.choices(
-            range(len(train_dataset.class_names)), k=num_tasks
-        )
-        target_classes = random.choices(
-            range(len(train_dataset.class_names)), k=num_tasks
-        )
-    else:
-        raise ValueError(f"Augmentation strategy {args.sample_strategy} not supported")
-
-    if args.strength_strategy == "fixed":
-        strength_list = [args.aug_strength] * num_tasks
-    elif args.strength_strategy == "uniform":
-        strength_list = random.choices([0.3, 0.5, 0.7, 0.9], k=num_tasks)
-
-    options = zip(range(num_tasks), source_classes, target_classes, strength_list)
-
-    for option in options:
-        in_queue.put(option)
+    # 加载映射文件
+    mappings = load_mapping_file(args.mapping_file)
+    
+    # 按target分组，创建任务包
+    target_groups = defaultdict(list)
+    for mapping in mappings:
+        # 使用(target_class, target_idx)作为分组键
+        group_key = (mapping['target_class'], mapping['target_idx'])
+        target_groups[group_key].append(mapping)
+    
+    # 将分组后的任务包放入队列
+    task_packages = []
+    for (target_class, target_idx), group_mappings in target_groups.items():
+        # 将每个组作为一个任务包
+        task_packages.append({
+            'target_class': target_class,
+            'target_idx': target_idx,
+            'mappings': group_mappings
+        })
+    
+    # 将任务包放入队列
+    for task_package in task_packages:
+        in_queue.put(task_package)
+    
+    num_tasks = len(task_packages)
+    print(f"创建了 {num_tasks} 个任务包（按target分组）")
 
     sample_config = vars(args)
     sample_config["num_classes"] = num_classes
     sample_config["total_tasks"] = num_tasks
     sample_config["sample_strategy"] = args.sample_strategy
+    sample_config["mapping_file"] = args.mapping_file
 
     with open(
         os.path.join(args.output_path, "config.yaml"), "w", encoding="utf-8"
@@ -295,6 +311,12 @@ if __name__ == "__main__":
         help="key for indexing finetuned model",
     )
     parser.add_argument(
+        "--mapping_file",
+        type=str,
+        required=True,
+        help="path to the source-target mapping CSV file",
+    )
+    parser.add_argument(
         "--output_root",
         type=str,
         default="outputs/aug_samples",
@@ -352,12 +374,6 @@ if __name__ == "__main__":
         default=0.01,
         choices=[0.01, 0.02, 0.1],
         help="imbalanced factor, only for imbalanced task",
-    )
-    parser.add_argument(
-        "--syn_dataset_mulitiplier",
-        type=int,
-        default=5,
-        help="multiplier for the number of synthetic images compared to the number of real images",
     )
     parser.add_argument(
         "--strength_strategy",

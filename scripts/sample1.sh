@@ -11,8 +11,8 @@ STRENGTH_STRATEGY='fixed'
 # expand the dataset by 5 times
 MULTIPLIER=5 
 # spwan 4 processes
-GPU_IDS=(0 1) 
-export CUDA_VISIBLE_DEVICES=1,2
+GPU_IDS=(0 1 3 4) 
+export CUDA_VISIBLE_DEVICES=1,2,3,4
 python  scripts/sample_mp.py \
 --model_path='runwayml/stable-diffusion-v1-5' \
 --output_root='outputs1/aug_samples' \

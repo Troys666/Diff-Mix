@@ -264,7 +264,7 @@ class DDIMLoraGeneration(GenerativeMixup):
         return str(name).replace("/", " ").replace(" ", "_")
 
     def _load_precomputed_for_class(self, class_name: str, device) -> dict:
-        """惰性加载指定类别的预计算特征: {clip, pen, fin}。若找不到返回{}"""
+        """惰性加载指定类别的预计算特征: {clip, text_clip, text_encoder_hidden_states, pen, fin}。若找不到返回{}"""
         if not self.pre_features_root:
             return {}
         key = self._sanitize_class_name(class_name)
@@ -285,11 +285,17 @@ class DDIMLoraGeneration(GenerativeMixup):
         try:
             data = torch.load(pt_candidates[0], map_location="cpu")
             clip_t = data.get("clip_features", None)
+            text_clip_t = data.get("text_clip_features", None)  # 文本CLIP特征
+            text_encoder_t = data.get("text_encoder_hidden_states", None)  # 完整文本编码器输出
             pen_t = data.get("up_block_penultimate_features", None)
             fin_t = data.get("up_block_final_features", None)
             out = {}
             if clip_t is not None:
                 out["clip"] = clip_t.to(device)
+            if text_clip_t is not None:
+                out["text_clip"] = text_clip_t.to(device)  # 文本CLIP特征
+            if text_encoder_t is not None:
+                out["text_encoder_hidden_states"] = text_encoder_t.to(device)  # 完整文本编码器输出
             if pen_t is not None:
                 out["pen"] = pen_t.to(device)
             if fin_t is not None:
@@ -312,24 +318,23 @@ class DDIMLoraGeneration(GenerativeMixup):
         cond_emb: torch.Tensor,
     ):
         """返回(clip_target_img_feat, clip_target_txt_feat, pen_tgt, fin_tgt)"""
-        # 文本CLIP特征
-        clip_target_txt_feat = None
-        if self.clip_model is not None and self.clip_processor is not None:
-            with torch.no_grad():
-                text_inputs_clip = self.clip_processor(text=[self.prompt.format(name=name)], return_tensors="pt", padding=True)
-                text_inputs_clip = {k: v.to(device) for k, v in text_inputs_clip.items()}
-                clip_target_txt_feat = self.clip_model.get_text_features(**text_inputs_clip)
-                clip_target_txt_feat = clip_target_txt_feat / (clip_target_txt_feat.norm(dim=-1, keepdim=True) + 1e-6)
-
-        up_feats_target = {}
-        clip_target_img_feat = None
-        # 优先用预计算
+        # 优先用预计算特征
         pre_t = self._load_precomputed_for_class(metadata.get("name", name), device)
+        
+        # 从预计算特征中获取文本CLIP特征
+        clip_target_txt_feat = None
+        if pre_t and "text_clip" in pre_t:
+            clip_target_txt_feat = pre_t["text_clip"]
+
+        # 从预计算特征中获取其他特征
+        clip_target_img_feat = None
+        up_feats_target = {}
         if pre_t:
             clip_target_img_feat = pre_t.get("clip", None)
             up_feats_target["pen"] = pre_t.get("pen", None)
             up_feats_target["fin"] = pre_t.get("fin", None)
-            return clip_target_img_feat, clip_target_txt_feat, up_feats_target.get("pen"), up_feats_target.get("fin")
+
+        return clip_target_img_feat, clip_target_txt_feat, up_feats_target.get("pen"), up_feats_target.get("fin")
 
     def _perform_guidance_step(
         self,
@@ -399,10 +404,10 @@ class DDIMLoraGeneration(GenerativeMixup):
         if use_clip_losses:
             if clip_img_feat is not None and clip_target_img_feat is not None:
                 delta = (clip_img_feat.detach() - clip_target_img_feat.detach().to(clip_img_feat.dtype))
-                losses.append(-1.5*(clip_img_feat * delta).sum())
+                losses.append(-0.5*(clip_img_feat * delta).sum())
             if clip_img_feat is not None and clip_target_txt_feat is not None:
                 delta = (clip_img_feat.detach() - clip_target_txt_feat.detach().to(clip_img_feat.dtype))
-                losses.append(-1.5*(clip_img_feat * delta).sum())
+                losses.append(-0.5*(clip_img_feat * delta).sum())
         # disable guidance loss from the penultimate upsampling layer
         # if up_pen_cur is not None and pen_tgt is not None:
         #     pen_tgt = pen_tgt.detach().to(up_pen_cur.device, dtype=up_pen_cur.dtype)
@@ -411,7 +416,7 @@ class DDIMLoraGeneration(GenerativeMixup):
         if up_fin_cur is not None and fin_tgt is not None:
             fin_tgt = fin_tgt.detach().to(up_fin_cur.device, dtype=up_fin_cur.dtype)
             delta = (up_fin_cur.detach() - fin_tgt)
-            losses.append(-(up_fin_cur * delta).sum())
+            losses.append(-0.5*(up_fin_cur * delta).sum())
 
         if len(losses) > 0:
             total_loss = sum(losses)
