@@ -30,7 +30,7 @@ def load_embeddings(
     )
 
     text_encoder = CLIPTextModel.from_pretrained(
-        model_path, use_auth_token=True, revision=revision, subfolder="text_encoder"
+        model_path, use_auth_token=True, revision=revision, subfolder="text_encoder", torch_dtype=torch.float16
     )
 
     for token, token_embedding in torch.load(embed_path, map_location="cpu").items():

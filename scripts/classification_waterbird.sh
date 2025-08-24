@@ -1,11 +1,16 @@
-GPU=1
-DATASET="cub"
-SHOT=-1
-SYNDATA_DIR="aug_samples/cub/shot${SHOT}_diff-mix_fixed_0.7" # shot-1 denotes full shot
-SYNDATA_P=0.1
-GAMMA=0.8
+#dataset    (dog         cub        car         aircraft      flower      pet      food     chest     caltech   pascal  )
+#lr(resnet) (0.001       0.05       0.10        0.10          0.05        0.01     0.01     0.01      0.01      0.01    )
+#lr(vit)    (0.00001     0.001      0.001       0.001         0.0005      0.0001   0.00005  0.00005   0.00005   0.00005 )
 
-python downstream_tasks/train_hub_waterbird.py \
+GPU=2
+DATASET="cub"
+SHOT=5
+# "shot{args.examples_per_class}_{args.sample_strategy}_{args.strength_strategy}_{args.aug_strength}"
+SYNDATA_DIR="/data/st/Diff-Mix/outputs2/aug_samples-aug/cub/shot5_diff-aug_fixed_0.8" # shot-1 denotes full shot
+SYNDATA_P=0.5
+GAMMA=0.3
+
+python downstream_tasks/train_hub.py \
     --dataset $DATASET \
     --syndata_dir $SYNDATA_DIR \
     --syndata_p $SYNDATA_P \
@@ -15,7 +20,7 @@ python downstream_tasks/train_hub_waterbird.py \
     --gpu $GPU \
     --amp 2 \
     --note $(date +%m%d%H%M) \
-    --group_note "robustness" \
+    --group_note "5shot-0.8-aug" \
     --nepoch 120 \
     --res_mode 224 \
     --lr 0.05 \

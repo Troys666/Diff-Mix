@@ -5,7 +5,7 @@ SHOT=5
 FINETUNED_CKPT="/data/st/Diff-Mix/ckpts/cub/shot5_lora_rank10_snr"
 
 # 映射文件路径
-MAPPING_FILE="/data/st/Diff-Mix/outputs/mappings/cub_shot5_mix_mult5_seed42.csv"
+MAPPING_FILE="/data/st/Diff-Mix/outputs/mappings/cub_shot5_aug_mult5_seed42.csv"
 
 # ['diff-mix', 'diff-aug', 'diff-gen', 'real-mix', 'real-aug', 'real-gen', 'ti_mix', 'ti_aug']
 # ['diff-mix', 'diff-aug', 'diff-gen', 'real-mix', 'real-aug', 'real-gen', 'ti_mix', 'ti_aug']
@@ -14,11 +14,11 @@ STRENGTH=0.8
 # ['fixed', 'uniform']. 'fixed': use fixed $STRENGTH, 'uniform': sample from [0.3, 0.5, 0.7, 0.9]
 STRENGTH_STRATEGY='fixed' 
 # spawn 2 processes
-GPU_IDS=(0 1 2 3) 
-export CUDA_VISIBLE_DEVICES=1,2,3,4
+GPU_IDS=(0) 
+export CUDA_VISIBLE_DEVICES=0,1
 python /data/st/Diff-Mix/scripts/sample_mp1.py \
 --model_path='runwayml/stable-diffusion-v1-5' \
---output_root='outputs2/aug_samples1' \
+--output_root='outputs2/aug_samples-aug-0.5-new' \
 --dataset=$DATASET \
 --finetuned_ckpt=$FINETUNED_CKPT \
 --mapping_file=$MAPPING_FILE \

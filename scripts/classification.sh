@@ -2,13 +2,13 @@
 #lr(resnet) (0.001       0.05       0.10        0.10          0.05        0.01     0.01     0.01      0.01      0.01    )
 #lr(vit)    (0.00001     0.001      0.001       0.001         0.0005      0.0001   0.00005  0.00005   0.00005   0.00005 )
 
-GPU=1
+GPU=0
 DATASET="cub"
 SHOT=5
 # "shot{args.examples_per_class}_{args.sample_strategy}_{args.strength_strategy}_{args.aug_strength}"
-SYNDATA_DIR="/data/st/Diff-Mix/outputs2/aug_samples/cub/shot5_diff-gen_fixed_1" # shot-1 denotes full shot
-SYNDATA_P=0.1
-GAMMA=0.8
+SYNDATA_DIR="/data/st/Diff-Mix/outputs2/aug_samples-aug-0.5-gen25/cub/shot5_diff-gen_fixed_0.8" # shot-1 denotes full shot
+SYNDATA_P=0.8
+GAMMA=0
 
 python downstream_tasks/train_hub.py \
     --dataset $DATASET \
@@ -20,7 +20,7 @@ python downstream_tasks/train_hub.py \
     --gpu $GPU \
     --amp 2 \
     --note $(date +%m%d%H%M) \
-    --group_note "5shot_mmd1" \
+    --group_note "5shot-0.5-gen-50" \
     --nepoch 120 \
     --res_mode 224 \
     --lr 0.05 \

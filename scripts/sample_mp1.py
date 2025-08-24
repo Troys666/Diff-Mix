@@ -31,12 +31,12 @@ def check_args_valid(args):
     if args.sample_strategy == "real-gen":
         args.lora_path = None
         args.embed_path = None
-        args.aug_strength = 1
+        args.aug_strength = 0.8
     elif args.sample_strategy == "diff-gen":
-        lora_path, embed_path = parse_finetuned_ckpt(args.finetuned_ckpt)
+        lora_path, embed_path = parse_finetuned_ckpt(args.finetuned_ckpt)#这里去嵌入token
         args.lora_path = lora_path
         args.embed_path = embed_path
-        args.aug_strength = 1
+        args.aug_strength = 0.8
     elif args.sample_strategy in ["real-aug", "real-mix"]:
         args.lora_path = None
         args.embed_path = None
@@ -114,11 +114,11 @@ def sample_func(args, in_queue, out_queue, gpu_id, process_id):
         # 解包任务包
         target_class = task_package['target_class']
         target_idx = task_package['target_idx']
+        target_name = task_package['target_name']
         mappings = task_package['mappings']
         
         # 获取target元数据
         target_metadata = train_dataset.get_metadata_by_idx(target_idx)
-        target_name = target_metadata["name"].replace(" ", "_").replace("/", "_")
         
         # 收集所有source图像和保存路径
         source_images = []
@@ -202,29 +202,35 @@ def main(args):
     # 加载映射文件
     mappings = load_mapping_file(args.mapping_file)
     
-    # 按target分组，创建任务包
-    target_groups = defaultdict(list)
+    # 按target_name分组，每个任务包处理5个任务
+    target_name_groups = defaultdict(list)
     for mapping in mappings:
-        # 使用(target_class, target_idx)作为分组键
-        group_key = (mapping['target_class'], mapping['target_idx'])
-        target_groups[group_key].append(mapping)
+        # 获取target元数据以获取target_name
+        target_metadata = train_dataset.get_metadata_by_idx(mapping['target_idx'])
+        target_name = target_metadata["name"].replace(" ", "_").replace("/", "_")
+        target_name_groups[target_name].append(mapping)
     
-    # 将分组后的任务包放入队列
+    # 创建任务包，每个任务包最多包含5个任务
     task_packages = []
-    for (target_class, target_idx), group_mappings in target_groups.items():
-        # 将每个组作为一个任务包
-        task_packages.append({
-            'target_class': target_class,
-            'target_idx': target_idx,
-            'mappings': group_mappings
-        })
+    for target_name, group_mappings in target_name_groups.items():
+        # 将每个target_name的映射分成大小为5的批次
+        for i in range(0, len(group_mappings), 5):
+            batch_mappings = group_mappings[i:i+5]
+            # 获取第一个映射的target信息作为任务包标识
+            first_mapping = batch_mappings[0]
+            task_packages.append({
+                'target_class': first_mapping['target_class'],
+                'target_idx': first_mapping['target_idx'],
+                'target_name': target_name,
+                'mappings': batch_mappings
+            })
     
     # 将任务包放入队列
     for task_package in task_packages:
         in_queue.put(task_package)
     
     num_tasks = len(task_packages)
-    print(f"创建了 {num_tasks} 个任务包（按target分组）")
+    print(f"创建了 {num_tasks} 个任务包（按target_name分组，每个任务包最多5个任务）")
 
     sample_config = vars(args)
     sample_config["num_classes"] = num_classes
